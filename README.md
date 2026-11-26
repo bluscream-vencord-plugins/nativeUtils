@@ -14,7 +14,7 @@ For tray menu items you can use right away, see [BetterTrayMenu](https://github.
 | `waitTrayClick(owner)` | Resolves with the id of the next clicked item of yours, or `null` after about 25 seconds. Call it in a loop. Clicks between two calls are queued. |
 | `hasTray()` | Whether a tray exists to add items to. |
 | `getTrayEntries()` | The current tray menu before any layout, as `[{ key, label, type, checked }]`. Keys: plugin items `<owner>/<id>`, Equibop's items `equibop/<label>`, separators `separator/<index>`. |
-| `setTrayLayout(layout)` | Rearranges the whole tray menu, including Equibop's own items. `layout` is `{ tree, hidden }`: `tree` lists nodes in order, each `{ key, label? }` (an entry, optionally renamed), `{ separator: true }` or `{ submenu: { label, children } }`; `hidden` lists keys to leave out. Entries in neither (e.g. new ones) are added at the end. `null` restores the normal menu. Moved and renamed Equibop items keep working. The MenuCustomisation plugin uses this for its tray editor. |
+| `setTrayLayout(layout)` | Rearranges the whole tray menu, including Equibop's own items. `layout` is `{ tree, hidden, disabled? }`: `tree` lists nodes in order, each `{ key, label? }` (an entry, optionally renamed), `{ separator: true }` or `{ submenu: { label, children } }`; `hidden` lists keys to leave out; `disabled` lists keys to grey out (items that are already disabled stay disabled). Entries in neither (e.g. new ones) are added at the end. `null` restores the normal menu. Moved and renamed Equibop items keep working. The MenuCustomisation plugin uses this for its tray editor. |
 
 Tray items only appear while NativeUtils is enabled.
 

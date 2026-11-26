@@ -70,10 +70,11 @@ type LayoutNode =
 interface TrayLayout {
     tree: LayoutNode[];
     hidden: string[];
+    disabled: string[];
 }
 
 type Placed<T> =
-    | { kind: "entry"; entry: Entry<T>; label: string; }
+    | { kind: "entry"; entry: Entry<T>; label: string; disabled: boolean; }
     | { kind: "separator"; }
     | { kind: "submenu"; label: string; children: Placed<T>[]; };
 
@@ -138,8 +139,9 @@ function tidy<T>(nodes: Placed<T>[]): Placed<T>[] {
 }
 
 function place<T>(entries: Entry<T>[]): Placed<T>[] {
-    const plain = entries.map((entry): Placed<T> => entry.type === "separator" ? { kind: "separator" } : { kind: "entry", entry, label: entry.label });
+    const plain = entries.map((entry): Placed<T> => entry.type === "separator" ? { kind: "separator" } : { kind: "entry", entry, label: entry.label, disabled: false });
     if (!layout) return tidy(plain);
+    const { hidden, disabled } = layout;
     const byKey = new Map(entries.filter(e => e.type !== "separator").map(e => [e.key, e]));
     const used = new Set<string>();
     const walk = (nodes: LayoutNode[]): Placed<T>[] => nodes.flatMap((node): Placed<T>[] => {
@@ -148,12 +150,11 @@ function place<T>(entries: Entry<T>[]): Placed<T>[] {
         const entry = byKey.get(node.key);
         if (!entry || used.has(node.key)) return [];
         used.add(node.key);
-        return [{ kind: "entry", entry, label: node.label ?? entry.label }];
+        return [{ kind: "entry", entry, label: node.label ?? entry.label, disabled: disabled.includes(node.key) }];
     });
     const out = walk(layout.tree);
-    const { hidden } = layout;
     for (const entry of byKey.values())
-        if (!used.has(entry.key) && !hidden.includes(entry.key)) out.push({ kind: "entry", entry, label: entry.label });
+        if (!used.has(entry.key) && !hidden.includes(entry.key)) out.push({ kind: "entry", entry, label: entry.label, disabled: disabled.includes(entry.key) });
     return tidy(out);
 }
 
@@ -162,13 +163,13 @@ function toTemplate(placed: Placed<MenuItem | MenuItemConstructorOptions>[]): Ar
         if (p.kind === "separator") return { type: "separator" };
         if (p.kind === "submenu") return { label: p.label, submenu: Menu.buildFromTemplate(toTemplate(p.children)) };
         const { source } = p.entry;
-        if (p.label === p.entry.label) return source;
-        if (!(source instanceof MenuItem)) return { ...source, label: p.label };
+        if (p.label === p.entry.label && !p.disabled) return source;
+        if (!(source instanceof MenuItem)) return { ...source, label: p.label, enabled: source.enabled !== false && !p.disabled };
         return {
             label: p.label,
             type: source.type,
             checked: source.checked,
-            enabled: source.enabled,
+            enabled: source.enabled && !p.disabled,
             visible: source.visible,
             sublabel: source.sublabel,
             toolTip: source.toolTip,
@@ -253,7 +254,7 @@ function sniList(placed: Placed<SniItem>[], nextSeparator: () => number): SniIte
         );
         else {
             const mark = p.entry.type === "checkbox" ? (p.entry.checked ? PATTERNS.sniChecked : PATTERNS.sniUnchecked) : "";
-            out.push({ ...p.entry.source, label: mark + p.label });
+            out.push({ ...p.entry.source, label: mark + p.label, enabled: p.entry.source.enabled !== false && !p.disabled });
         }
     }
     return out.filter((item, i) => item.type !== "separator" || (i > 0 && i < out.length - 1 && out[i - 1].type !== "separator"));
@@ -326,9 +327,10 @@ function parseItem(value: unknown): TrayItem | null {
 
 function parseLayout(value: unknown): TrayLayout | null {
     if (typeof value !== "object" || value === null) return null;
-    const { tree, hidden } = value as Record<string, unknown>;
+    const { tree, hidden, disabled = [] } = value as Record<string, unknown>;
     if (!Array.isArray(tree) || !Array.isArray(hidden) || hidden.length > PATTERNS.maxLayoutNodes) return null;
-    if (!hidden.every(key => isText(key, PATTERNS.maxKeyLength))) return null;
+    if (!Array.isArray(disabled) || disabled.length > PATTERNS.maxLayoutNodes) return null;
+    if (![...hidden, ...disabled].every(key => isText(key, PATTERNS.maxKeyLength))) return null;
     let budget = PATTERNS.maxLayoutNodes;
     const parseNode = (node: unknown, depth: number): LayoutNode | null => {
         if (--budget < 0 || typeof node !== "object" || node === null) return null;
@@ -348,7 +350,8 @@ function parseLayout(value: unknown): TrayLayout | null {
     };
     const nodes = tree.map(node => parseNode(node, 0));
     if (nodes.some(node => node === null)) return null;
-    return { tree: nodes.filter((n): n is LayoutNode => n !== null), hidden: hidden.filter((k): k is string => typeof k === "string") };
+    const keys = (list: unknown[]) => list.filter((k): k is string => typeof k === "string");
+    return { tree: nodes.filter((n): n is LayoutNode => n !== null), hidden: keys(hidden), disabled: keys(disabled) };
 }
 
 export function copyText(_: IpcMainInvokeEvent, text: unknown) {
