@@ -19,7 +19,14 @@ const PATTERNS = {
     maxItemsPerOwner: 20,
     /** How long `waitTrayClick` waits before answering null, so the renderer can poll again. */
     clickWaitMs: 25_000,
-    itemTypes: ["normal", "checkbox", "separator"]
+    itemTypes: ["normal", "checkbox", "separator"],
+    /** Equibop's native Linux tray module (StatusNotifierItem), loaded by Equibop before Equicord. */
+    sniModule: /libvesktop-[^\\/]+\.node$/,
+    /** Ids for our items in the native Linux menu, above Equibop's own (1 to 12). */
+    sniFirstId: 1000,
+    /** The native Linux menu has no checkbox type, so checkbox state is shown as a label prefix. */
+    sniChecked: "✓ ",
+    sniUnchecked: "    "
 } as const;
 
 type ItemType = typeof PATTERNS.itemTypes[number];
@@ -94,10 +101,86 @@ Tray.prototype.popUpContextMenu = function (this: Tray, menu?: Menu, position?: 
 };
 
 function refresh() {
+    refreshSni();
     if (!tray || tray.isDestroyed() || !baseMenu) return;
     originalSetContextMenu.call(tray, buildMenu(baseMenu));
 }
 
+interface SniItem {
+    id: number;
+    label?: string;
+    type?: string;
+    enabled?: boolean;
+    visible?: boolean;
+}
+
+interface SniModule {
+    setStatusNotifierMenu(items: SniItem[]): void;
+    setStatusNotifierMenuClickCallback(callback: (id: number) => void): void;
+}
+
+const isSniModule = (value: unknown): value is SniModule =>
+    typeof value === "object" && value !== null
+    && typeof (value as Partial<SniModule>).setStatusNotifierMenu === "function"
+    && typeof (value as Partial<SniModule>).setStatusNotifierMenuClickCallback === "function";
+
+let sni: SniModule | null = null;
+let sniBaseItems: SniItem[] | null = null;
+let sniOriginalSetMenu: SniModule["setStatusNotifierMenu"] | null = null;
+const sniRoutes = new Map<number, { owner: string; id: string; }>();
+
+function buildSniItems(base: SniItem[]): SniItem[] {
+    sniRoutes.clear();
+    if (!isEnabled() || !ownerItems.size) return base;
+    const own: SniItem[] = [];
+    let next = PATTERNS.sniFirstId;
+    for (const [owner, items] of ownerItems) {
+        if (own.length && items.length) own.push({ id: next++, type: "separator", enabled: true, visible: true });
+        for (const item of items) {
+            const id = next++;
+            if (item.type === "separator") {
+                own.push({ id, type: "separator", enabled: true, visible: true });
+                continue;
+            }
+            const mark = item.type === "checkbox" ? (item.checked ? PATTERNS.sniChecked : PATTERNS.sniUnchecked) : "";
+            own.push({ id, label: mark + item.label, enabled: item.enabled, visible: true });
+            sniRoutes.set(id, { owner, id: item.id });
+        }
+    }
+    const restart = base.findIndex(item => item.label === PATTERNS.insertBeforeLabel);
+    const at = restart > 0 && base[restart - 1].type === "separator" ? restart - 1 : restart;
+    const separator: SniItem = { id: next++, type: "separator", enabled: true, visible: true };
+    return at < 0 ? [...base, separator, ...own] : [...base.slice(0, at), separator, ...own, ...base.slice(at)];
+}
+
+function hookSni() {
+    if (process.platform !== "linux") return;
+    const key = Object.keys(require.cache).find(path => PATTERNS.sniModule.test(path));
+    const exports: unknown = key ? require.cache[key]?.exports : undefined;
+    if (!isSniModule(exports)) return;
+    sni = exports;
+    const setMenu = exports.setStatusNotifierMenu.bind(exports);
+    const setClick = exports.setStatusNotifierMenuClickCallback.bind(exports);
+    sniOriginalSetMenu = setMenu;
+    exports.setStatusNotifierMenu = (items: SniItem[]) => {
+        sniBaseItems = items;
+        setMenu(buildSniItems(items));
+    };
+    exports.setStatusNotifierMenuClickCallback = (callback: (id: number) => void) => {
+        setClick((id: number) => {
+            const route = sniRoutes.get(id);
+            if (route) emitClick(route.owner, route.id);
+            else callback(id);
+        });
+    };
+}
+
+function refreshSni() {
+    if (!sni || !sniBaseItems || !sniOriginalSetMenu) return;
+    sniOriginalSetMenu(buildSniItems(sniBaseItems));
+}
+
+hookSni();
 RendererSettings.addChangeListener(`plugins.${PATTERNS.pluginName}.enabled`, refresh);
 
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length > 0 && value.length <= max;
@@ -138,7 +221,7 @@ export function setTrayItems(_: IpcMainInvokeEvent, owner: unknown, items: unkno
 }
 
 export function hasTray() {
-    return tray !== null && !tray.isDestroyed();
+    return (tray !== null && !tray.isDestroyed()) || sniBaseItems !== null;
 }
 
 export function waitTrayClick(_: IpcMainInvokeEvent, owner: unknown) {

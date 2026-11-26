@@ -18,6 +18,8 @@ Tray items only appear while NativeUtils is enabled.
 
 How the tray works: Equicord loads plugin native code before Equibop builds its tray, so NativeUtils wraps Electron's `Tray.setContextMenu` and adds the registered items whenever Equibop sets the menu. Nothing on disk is changed. If an Equibop update builds its tray differently, the extra items simply stop appearing and Equibop's own menu keeps working.
 
+On Linux, Equibop uses its own native tray module (`libvesktop-<arch>.node`, a StatusNotifierItem) instead of Electron's tray. Equibop loads it before Equicord, so NativeUtils finds it in Node's module cache and wraps its `setStatusNotifierMenu` and `setStatusNotifierMenuClickCallback` the same way. That menu has no checkbox type, so checkbox items show a ✓ in front of the label instead. **The Linux part is untested**: it was written against Equibop's code but never run on Linux. If it doesn't work there, Equibop's own tray keeps working.
+
 ## Using it from another plugin
 
 Don't import this plugin, so yours still builds without it. Look it up at runtime and fall back when it's missing or disabled:
