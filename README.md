@@ -10,15 +10,17 @@ For tray menu items you can use right away, see [BetterTrayMenu](https://github.
 | --- | --- |
 | `copyText(text)` | Copies text with Electron's clipboard, which works while Discord isn't focused (e.g. while you're in a game). Returns `false` for empty or very long text. |
 | `readText()` | Reads text from the clipboard. |
-| `setTrayItems(owner, items)` | Sets your plugin's items in Equibop's tray menu, shown above Restart and Quit (up to 20). Each item is `{ id, label, type: "normal" \| "checkbox" \| "separator", checked?, enabled? }`. An empty list removes them. |
+| `setTrayItems(owner, items)` | Sets your plugin's items in Equibop's tray menu (up to 20). Each item is `{ id, label, type: "normal" \| "checkbox" \| "separator", checked?, enabled?, position? }`. `position` is `"default"` (a block above the Restart group, the default), `"top"` (the very top, followed by a separator) or `"beforeRestart"` (directly before Equibop's Restart). An empty list removes them. |
 | `waitTrayClick(owner)` | Resolves with the id of the next clicked item of yours, or `null` after about 25 seconds. Call it in a loop. Clicks between two calls are queued. |
 | `hasTray()` | Whether a tray exists to add items to. |
+| `getTrayEntries()` | The current tray menu before any layout, as `[{ key, label, type, checked }]`. Keys: plugin items `<owner>/<id>`, Equibop's items `equibop/<label>`, separators `separator/<index>`. |
+| `setTrayLayout(layout)` | Rearranges the whole tray menu, including Equibop's own items. `layout` is `{ tree, hidden }`: `tree` lists nodes in order, each `{ key, label? }` (an entry, optionally renamed), `{ separator: true }` or `{ submenu: { label, children } }`; `hidden` lists keys to leave out. Entries in neither (e.g. new ones) are added at the end. `null` restores the normal menu. Moved and renamed Equibop items keep working. The MenuCustomisation plugin uses this for its tray editor. |
 
 Tray items only appear while NativeUtils is enabled.
 
 How the tray works: Equicord loads plugin native code before Equibop builds its tray, so NativeUtils wraps Electron's `Tray.setContextMenu` and adds the registered items whenever Equibop sets the menu. Nothing on disk is changed. If an Equibop update builds its tray differently, the extra items simply stop appearing and Equibop's own menu keeps working.
 
-On Linux, Equibop uses its own native tray module (`libvesktop-<arch>.node`, a StatusNotifierItem) instead of Electron's tray. Equibop loads it before Equicord, so NativeUtils finds it in Node's module cache and wraps its `setStatusNotifierMenu` and `setStatusNotifierMenuClickCallback` the same way. That menu has no checkbox type, so checkbox items show a ✓ in front of the label instead. **The Linux part is untested**: it was written against Equibop's code but never run on Linux. If it doesn't work there, Equibop's own tray keeps working.
+On Linux, Equibop uses its own native tray module (`libvesktop-<arch>.node`, a StatusNotifierItem) instead of Electron's tray. Equibop loads it before Equicord, so NativeUtils finds it in Node's module cache and wraps its `setStatusNotifierMenu` and `setStatusNotifierMenuClickCallback` the same way. That menu has no checkbox type, so checkbox items show a ✓ in front of the label instead, and it has no submenus, so a layout's submenus show as their items between separators. **The Linux part is untested**: it was written against Equibop's code but never run on Linux. If it doesn't work there, Equibop's own tray keeps working.
 
 ## Using it from another plugin
 
